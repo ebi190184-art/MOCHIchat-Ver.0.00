@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>MOCHIchat (microCMS + パスワード認証版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/microcms-js-sdk@latest/dist/umd/microcms-js-sdk.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet" />
+    <style>
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #111; font-family: "Noto Sans JP", sans-serif; }
+      #app { width: 100vw; height: 100dvh; display: flex; justify-content: center; background-color: #f3f4f6; }
+      .app-container { width: 100%; height: 100%; background: #fff; max-width: 500px; display: flex; flex-direction: column; position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+      .hide-scrollbar::-webkit-scrollbar { display: none; }
+      .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      .tab-content { animation: fadeIn 0.2s ease-out; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+      .message-enter-active, .message-leave-active { transition: all 0.3s ease; }
+      .message-enter-from { opacity: 0; transform: translateY(10px); }
+      .stamp-item { transition: transform 0.1s; }
+      .stamp-item:active { transform: scale(0.9); }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="app-container">
+        
+        <div v-if="currentView === 'login'" class="flex-1 flex flex-col justify-center items-center p-6 bg-white">
+          <div class="w-full max-w-sm text-center">
+            <div class="w-24 h-24 bg-amber-400 rounded-full mx-auto mb-6 flex items-center justify-center shadow-lg">
+              <span class="material-icons-outlined text-white text-5xl">chat_bubble_outline</span>
+            </div>
+            <h1 class="text-3xl font-black text-amber-500 mb-2 tracking-wider">MOCHIchat</h1>
+            <p class="text-gray-500 text-sm mb-8">microCMS + パスワード認証版</p>
+            
+            <input v-model="authUsername" type="text" placeholder="ユーザーID（半角英数字）" class="w-full p-4 mb-3 border border-gray-200 rounded-2xl bg-gray-50 outline-none focus:border-amber-400 transition" />
+            
+            <input v-model="authPassword" type="password" placeholder="パスワード" class="w-full p-4 mb-6 border border-gray-200 rounded-2xl bg-gray-50 outline-none focus:border-amber-400 transition" />
+            
+            <button @click="login" class="w-full bg-amber-400 hover:bg-amber-500 text-white font-bold p-4 rounded-2xl shadow-sm transition active:scale-98">ログイン / 新規登録</button>
+          </div>
+        </div>
+
+        <div v-else-if="currentView === 'main'" class="flex-1 flex flex-col overflow-hidden bg-gray-50">
+          <header class="bg-white px-5 py-4 flex justify-between items-center shadow-sm z-10 sticky top-0">
+            <h2 class="text-xl font-bold text-gray-800">{{ tabTitle }}</h2>
+            <div class="flex items-center space-x-3">
+              <button v-if="activeTab==='talk'" @click="showCreateRoomModal=true" class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center hover:bg-gray-200 transition"><span class="material-icons-outlined text-gray-600">add</span></button>
+              <button v-if="activeTab==='home'" @click="showSearchModal=true" class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center hover:bg-gray-200 transition"><span class="material-icons-outlined text-gray-600">person_add</span></button>
+            </div>
+          </header>
+
+          <main class="flex-1 overflow-y-auto hide-scrollbar p-4 relative tab-content pb-24">
+            
+            <div v-if="activeTab === 'home'" class="space-y-6">
+              <div class="bg-gradient-to-r from-amber-400 to-orange-400 p-5 rounded-3xl shadow-md text-white flex items-center justify-between cursor-pointer active:scale-98 transition" @click="showProfileModal = true">
+                <div class="flex items-center space-x-4">
+                  <div class="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center overflow-hidden border-2 border-white/50">
+                    <img v-if="currentUser.photoURL" :src="currentUser.photoURL" class="w-full h-full object-cover" />
+                    <span v-else class="material-icons-outlined text-3xl">person</span>
+                  </div>
+                  <div><p class="text-sm font-medium opacity-90">こんにちは、</p><p class="text-xl font-bold">{{ currentUser.displayName }}</p></div>
+                </div>
+                <span class="material-icons-outlined">chevron_right</span>
+              </div>
+              <section>
+                <div class="flex justify-between items-center mb-3"><h3 class="text-gray-500 font-bold text-sm ml-1">ニュース</h3><button v-if="isAdmin" @click="addNews" class="text-amber-500 text-xs font-bold bg-amber-50 px-3 py-1 rounded-full">投稿</button></div>
+                <div class="space-y-3">
+                  <div v-for="n in newsList" :key="n.id" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-start">
+                    <div><p class="text-xs text-amber-500 font-bold mb-1">{{ formatTime(n.createdAt) }}</p><p class="text-sm text-gray-800 leading-relaxed font-medium">{{ n.title }}</p><p class="text-xs text-gray-500 mt-1" v-if="n.content">{{ n.content }}</p></div>
+                    <button v-if="isAdmin" @click="deleteNews(n.id)" class="text-red-400 p-1"><span class="material-icons-outlined text-sm">delete</span></button>
+                  </div>
+                  <p v-if="!newsList.length" class="text-center text-gray-400 text-sm py-4">ニュースはありません</p>
+                </div>
+              </section>
+              <section>
+                <div class="flex justify-between items-center mb-3"><h3 class="text-gray-500 font-bold text-sm ml-1">友だち ({{ friendList.length }})</h3></div>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div v-for="f in friendList" :key="f.uid" @click="startDirectChat(f.uid)" class="flex items-center justify-between p-4 border-b border-gray-50 last:border-0 active:bg-gray-50 transition cursor-pointer">
+                    <div class="flex items-center space-x-3">
+                      <div class="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden"><img v-if="f.photoURL" :src="f.photoURL" class="w-full h-full object-cover" /><span v-else class="material-icons-outlined text-gray-400">person</span></div>
+                      <span class="font-medium text-gray-800">{{ f.displayName }}</span>
+                    </div>
+                    <span class="material-icons-outlined text-gray-300">chat</span>
+                  </div>
+                  <p v-if="!friendList.length" class="text-center text-gray-400 text-sm py-6">友だちがいません。<br>右上のボタンから追加しましょう。</p>
+                </div>
+              </section>
+            </div>
+
+            <div v-if="activeTab === 'talk'" class="space-y-3">
+              <div v-for="t in displayTalks" :key="t.id" @click="openTalkItem(t)" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4 active:bg-gray-50 transition cursor-pointer relative overflow-hidden">
+                <div class="w-14 h-14 bg-gray-100 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden">
+                  <img v-if="t.photoURL" :src="t.photoURL" class="w-full h-full object-cover" />
+                  <span v-else class="material-icons-outlined text-gray-400">{{ t.isGroup ? 'groups' : 'person' }}</span>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex justify-between items-center mb-1"><h3 class="font-bold text-gray-800 truncate text-base">{{ t.name }}</h3><span class="text-xs text-gray-400 flex-shrink-0 ml-2" v-if="t.timestamp">{{ formatTime(t.timestamp) }}</span></div>
+                  <p class="text-sm text-gray-500 truncate" v-if="t.lastMessage">{{ t.lastMessage.type==='stamp' ? 'スタンプを送信しました' : (t.lastMessage.type==='money' ? 'モチを送りました' : t.lastMessage.text) }}</p>
+                </div>
+                <button @click.stop="deleteChatRoom(t)" class="absolute right-0 top-0 bottom-0 w-16 bg-red-500 text-white flex justify-center items-center opacity-0 hover:opacity-100 transition duration-200">
+                  <span class="material-icons-outlined">delete</span>
+                </button>
+              </div>
+              <p v-if="!displayTalks.length" class="text-center text-gray-400 text-sm py-10">トーク履歴がありません。<br>右上の＋から新しいルームを作成するか、<br>友だちとトークを始めましょう。</p>
+            </div>
+
+            <div v-if="activeTab === 'wallet'" class="space-y-6">
+              <div class="bg-gray-800 p-6 rounded-3xl shadow-lg text-white relative overflow-hidden">
+                <div class="absolute -right-4 -top-4 w-32 h-32 bg-white opacity-5 rounded-full blur-2xl"></div>
+                <p class="text-gray-400 text-sm mb-2 font-medium">残高（モチ）</p>
+                <div class="flex items-baseline space-x-2"><span class="text-5xl font-black tracking-tighter">{{ walletBalance.toLocaleString() }}</span><span class="text-lg text-gray-400 font-bold">M</span></div>
+                <div class="mt-6 flex space-x-3">
+                  <button @click="showSendModal=true" class="flex-1 bg-amber-400 hover:bg-amber-500 text-gray-900 font-bold py-3 rounded-xl flex items-center justify-center space-x-2 transition"><span class="material-icons-outlined text-lg">send</span><span>送る</span></button>
+                  <button @click="getLoginBonus" class="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl flex items-center justify-center space-x-2 transition"><span class="material-icons-outlined text-lg">redeem</span><span>ボーナス</span></button>
+                </div>
+              </div>
+              <section>
+                <div class="flex justify-between items-center mb-4"><h3 class="text-gray-500 font-bold text-sm ml-1">スタンプショップ</h3><button @click="showCreatorModal=true" class="text-amber-500 text-xs font-bold bg-amber-50 px-3 py-1 rounded-full border border-amber-100"><span class="material-icons-outlined text-sm align-middle mr-1">palette</span>自作する</button></div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div v-for="s in stampSets" :key="s.id" class="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex flex-col">
+                    <div class="aspect-square bg-gray-50 rounded-xl mb-3 flex items-center justify-center p-2"><img :src="getStampImages(s)[0] || 'https://placehold.co/100x100?text=NoImage'" class="max-w-full max-h-full object-contain" /></div>
+                    <p class="font-bold text-gray-800 text-sm truncate mb-1">{{ s.title }}</p>
+                    <div class="flex justify-between items-center mt-auto">
+                      <span class="text-amber-500 font-bold text-sm">{{ s.price || 0 }} M</span>
+                      <button v-if="!myStampIds.includes(s.id)" @click="buyStamp(s)" class="bg-gray-800 text-white text-xs px-3 py-1.5 rounded-lg font-bold hover:bg-gray-700">購入</button>
+                      <span v-else class="text-gray-400 text-xs font-bold px-2 py-1 bg-gray-100 rounded-lg">所持</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div v-if="activeTab === 'settings'" class="space-y-4">
+              <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <button @click="showProfileModal = true" class="w-full flex items-center justify-between p-4 border-b border-gray-50 hover:bg-gray-50 transition"><div class="flex items-center space-x-3"><span class="material-icons-outlined text-gray-400">person</span><span class="font-medium text-gray-700">プロフィール編集</span></div><span class="material-icons-outlined text-gray-300">chevron_right</span></button>
+                <button @click="showBlockListModal = true" class="w-full flex items-center justify-between p-4 border-b border-gray-50 hover:bg-gray-50 transition"><div class="flex items-center space-x-3"><span class="material-icons-outlined text-gray-400">block</span><span class="font-medium text-gray-700">ブロックリスト</span></div><span class="material-icons-outlined text-gray-300">chevron_right</span></button>
+                <button @click="logout" class="w-full flex items-center justify-between p-4 hover:bg-red-50 transition"><div class="flex items-center space-x-3"><span class="material-icons-outlined text-red-400">logout</span><span class="font-medium text-red-500">ログアウト</span></div></button>
+              </div>
+            </div>
+          </main>
+
+          <nav class="bg-white/80 backdrop-blur-md border-t border-gray-100 flex justify-around p-2 pb-6 absolute bottom-0 w-full z-20">
+            <button @click="activeTab='home'" :class="['flex flex-col items-center p-2 w-16 transition', activeTab==='home' ? 'text-amber-500' : 'text-gray-400']"><span class="material-icons-outlined mb-1 text-2xl" :class="{'material-icons':activeTab==='home'}">home</span><span class="text-[10px] font-bold">ホーム</span></button>
+            <button @click="activeTab='talk'" :class="['flex flex-col items-center p-2 w-16 transition', activeTab==='talk' ? 'text-amber-500' : 'text-gray-400']"><span class="material-icons-outlined mb-1 text-2xl" :class="{'material-icons':activeTab==='talk'}">chat</span><span class="text-[10px] font-bold">トーク</span></button>
+            <button @click="activeTab='wallet'" :class="['flex flex-col items-center p-2 w-16 transition', activeTab==='wallet' ? 'text-amber-500' : 'text-gray-400']"><span class="material-icons-outlined mb-1 text-2xl" :class="{'material-icons':activeTab==='wallet'}">account_balance_wallet</span><span class="text-[10px] font-bold">ウォレット</span></button>
+            <button @click="activeTab='settings'" :class="['flex flex-col items-center p-2 w-16 transition', activeTab==='settings' ? 'text-amber-500' : 'text-gray-400']"><span class="material-icons-outlined mb-1 text-2xl" :class="{'material-icons':activeTab==='settings'}">settings</span><span class="text-[10px] font-bold">設定</span></button>
+          </nav>
+        </div>
+
+        <div v-else-if="currentView === 'chat'" class="flex-1 flex flex-col bg-[#7494C0] relative z-30">
+          <header class="bg-white/90 backdrop-blur-md px-4 py-3 flex items-center justify-between shadow-sm z-10">
+            <div class="flex items-center space-x-3">
+              <button @click="closeChat" class="w-10 h-10 flex items-center justify-center -ml-2 text-gray-600 hover:bg-gray-100 rounded-full transition"><span class="material-icons-outlined">arrow_back_ios_new</span></button>
+              <h2 class="text-lg font-bold text-gray-800 truncate max-w-[200px]">{{ activeRoom?.name || 'トーク' }}</h2>
+            </div>
+            <button @click="showChatMenu=!showChatMenu" class="w-10 h-10 flex items-center justify-center text-gray-600 hover:bg-gray-100 rounded-full transition"><span class="material-icons-outlined">menu</span></button>
+            
+            <div v-if="showChatMenu" class="absolute right-4 top-14 bg-white rounded-xl shadow-xl border border-gray-100 py-2 w-48 z-50">
+              <button v-if="activeRoom.type === 'direct'" @click="toggleBlockCurrentChatUser" class="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"><span class="material-icons-outlined text-gray-400 text-lg">block</span><span>{{ isCurrentChatPartnerBlocked ? 'ブロック解除' : 'ブロックする' }}</span></button>
+              <button @click="deleteChatRoomInView" class="w-full text-left px-4 py-3 text-sm text-red-500 hover:bg-red-50 flex items-center space-x-2"><span class="material-icons-outlined text-red-400 text-lg">delete</span><span>トーク履歴を削除</span></button>
+            </div>
+          </header>
+
+          <main class="flex-1 overflow-y-auto p-4 space-y-4 pb-20" id="chat-messages">
+            <div v-for="m in messages" :key="m.id" :class="['flex', m.senderId === currentUser.uid ? 'justify-end' : 'justify-start']">
+              <div v-if="m.senderId !== currentUser.uid" class="w-8 h-8 rounded-full bg-white/50 mr-2 flex-shrink-0 flex items-center justify-center overflow-hidden border border-white/20"><img v-if="m.photoURL" :src="m.photoURL" class="w-full h-full object-cover" /><span v-else class="material-icons-outlined text-gray-500 text-sm">person</span></div>
+              <div :class="['max-w-[70%] flex flex-col', m.senderId === currentUser.uid ? 'items-end' : 'items-start']">
+                <span v-if="m.senderId !== currentUser.uid" class="text-[10px] text-white/80 mb-1 ml-1">{{ m.senderName }}</span>
+                <div v-if="m.type === 'text'" :class="['px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed shadow-sm break-words whitespace-pre-wrap', m.senderId === currentUser.uid ? 'bg-[#85E249] text-gray-900 rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none']">{{ m.text }}</div>
+                <div v-else-if="m.type === 'stamp'" class="w-32 h-32 relative"><img :src="m.stampUrl" class="w-full h-full object-contain drop-shadow-md" /></div>
+                <div v-else-if="m.type === 'money'" class="bg-gradient-to-br from-amber-300 to-orange-400 p-4 rounded-2xl shadow-md text-white flex flex-col items-center justify-center min-w-[120px]"><span class="material-icons-outlined text-3xl mb-1 opacity-90">payments</span><span class="font-bold text-xl">{{ m.amount }} M</span><span class="text-[10px] opacity-80 mt-1">送金されました</span></div>
+                <div class="flex items-center space-x-1 mt-1"><span class="text-[10px] text-white/70">{{ formatTime(m.timestamp) }}</span></div>
+              </div>
+            </div>
+            <p v-if="isCurrentChatPartnerBlocked" class="text-center text-xs text-white bg-black/30 p-2 rounded-lg mx-auto w-fit mt-4">このユーザーはブロックされています。</p>
+          </main>
+
+          <footer class="bg-white p-2 flex items-end space-x-2 border-t border-gray-200">
+            <button @click="showStickerPicker = !showStickerPicker" class="w-10 h-10 flex-shrink-0 flex items-center justify-center text-gray-400 hover:text-amber-500 transition"><span class="material-icons-outlined text-2xl">sentiment_satisfied_alt</span></button>
+            <div class="flex-1 bg-gray-100 rounded-2xl border border-gray-200 overflow-hidden flex min-h-[40px] max-h-[120px]">
+              <textarea v-model="newMsg" @keydown.enter.prevent="sendMsg('text')" :disabled="isCurrentChatPartnerBlocked" placeholder="メッセージを入力..." class="w-full bg-transparent p-3 outline-none resize-none text-[15px] leading-tight hide-scrollbar disabled:opacity-50" rows="1"></textarea>
+            </div>
+            <button @click="sendMsg('text')" :disabled="!newMsg.trim() || isCurrentChatPartnerBlocked" class="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-amber-400 text-white rounded-full disabled:opacity-50 disabled:bg-gray-300 transition active:scale-95"><span class="material-icons-outlined">send</span></button>
+          </footer>
+
+          <div v-if="showStickerPicker" class="absolute bottom-16 left-0 right-0 bg-white border-t border-gray-200 shadow-xl z-20 flex flex-col h-64 animate-[fadeIn_0.2s_ease-out]">
+            <div class="flex overflow-x-auto bg-gray-50 border-b border-gray-200 hide-scrollbar p-1">
+              <button v-for="setId in myStampIds" :key="setId" @click="selectedStampSet = setId" :class="['w-12 h-12 flex-shrink-0 rounded-lg p-1 mx-1 transition', selectedStampSet === setId ? 'bg-white shadow-sm border border-gray-200' : 'hover:bg-gray-200']"><img :src="getStampImages(stampSets.find(s=>s.id===setId))[0] || 'https://placehold.co/40x40?text=S'" class="w-full h-full object-contain" /></button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-3 grid grid-cols-4 gap-3 hide-scrollbar">
+              <button v-for="(img, idx) in getStampImages(stampSets.find(s=>s.id===selectedStampSet))" :key="idx" @click="sendMsg('stamp', img)" :disabled="isCurrentChatPartnerBlocked" class="aspect-square bg-gray-50 rounded-xl p-2 hover:bg-gray-100 transition stamp-item disabled:opacity-50"><img :src="img" class="w-full h-full object-contain drop-shadow-sm" /></button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="showProfileModal" class="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-center items-center p-4">
+          <div class="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+            <button @click="showProfileModal=false" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><span class="material-icons-outlined">close</span></button>
+            <h3 class="text-xl font-bold text-gray-800 mb-6 text-center">プロフィール編集</h3>
+            <div class="flex flex-col items-center mb-6">
+              <label class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-3 overflow-hidden border-2 border-dashed border-gray-300 cursor-pointer hover:border-amber-400 transition relative group">
+                <img v-if="currentUser.photoURL" :src="currentUser.photoURL" class="w-full h-full object-cover" />
+                <span v-else class="material-icons-outlined text-gray-400 text-3xl">add_a_photo</span>
+                <div class="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"><span class="material-icons-outlined text-white">edit</span></div>
+                <input type="file" accept="image/*" @change="handleProfileIconUpload" class="hidden" />
+              </label>
+              <p class="text-xs text-gray-400">タップしてアイコンを変更</p>
+            </div>
+            <div class="mb-6">
+              <label class="block text-sm font-bold text-gray-600 mb-2">名前</label>
+              <input v-model="editProfileName" type="text" class="w-full p-4 border border-gray-200 rounded-xl bg-gray-50 outline-none focus:border-amber-400 transition" />
+            </div>
+            <button @click="saveProfile" class="w-full bg-gray-800 text-white font-bold py-4 rounded-xl shadow-md hover:bg-gray-700 transition">保存する</button>
+          </div>
+        </div>
+
+        <div v-if="showBlockListModal" class="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-center items-center p-4">
+          <div class="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl flex flex-col max-h-[80vh]">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-xl font-bold text-gray-800">ブロックリスト</h3>
+              <button @click="showBlockListModal=false" class="text-gray-400 hover:text-gray-600"><span class="material-icons-outlined">close</span></button>
+            </div>
+            <div class="flex-1 overflow-y-auto">
+              <div v-for="id in blockedList" :key="id" class="flex justify-between items-center p-3 border-b border-gray-100">
+                <span class="text-gray-700 font-medium">{{ id }}</span>
+                <button @click="unblockUser(id)" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded-lg font-bold">解除</button>
+              </div>
+              <p v-if="!blockedList.length" class="text-center text-gray-400 text-sm py-4">ブロックしているユーザーはいません。</p>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="showSendModal" class="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-center items-center p-4">
+          <div class="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+             <button @click="showSendModal=false" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><span class="material-icons-outlined">close</span></button>
+             <h3 class="text-xl font-bold text-gray-800 mb-6 text-center">モチを送る</h3>
+             <div class="mb-4">
+               <label class="block text-sm font-bold text-gray-600 mb-2">送り先</label>
+               <select v-model="selectedFriendId" class="w-full p-4 border border-gray-200 rounded-xl bg-gray-50 outline-none focus:border-amber-400">
+                 <option disabled value="">友だちを選択してください</option>
+                 <option v-for="f in friendList" :key="f.uid" :value="f.uid">{{ f.displayName }}</option>
+               </select>
+             </div>
+             <div class="mb-6">
+               <label class="block text-sm font-bold text-gray-600 mb-2">金額 (M)</label>
+               <input v-model.number="sendAmount" type="number" placeholder="0" class="w-full p-4 border border-gray-200 rounded-xl bg-gray-50 outline-none focus:border-amber-400 text-2xl font-bold text-center" />
+             </div>
+             <button @click="executeSend" class="w-full bg-amber-400 text-white font-bold py-4 rounded-xl shadow-md hover:bg-amber-500 transition">送金する</button>
+          </div>
+        </div>
+
+        <div v-if="showSearchModal" class="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-center items-center p-4">
+          <div class="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative max-h-[80vh] flex flex-col">
+            <button @click="showSearchModal=false" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><span class="material-icons-outlined">close</span></button>
+            <h3 class="text-xl font-bold text-gray-800 mb-4">友だち追加</h3>
+            <div class="flex space-x-2 mb-4">
+              <input v-model="searchQuery" placeholder="ユーザーIDを入力" class="flex-1 p-3 border border-gray-200 rounded-xl bg-gray-50 outline-none focus:border-amber-400" />
+              <button @click="performSearch" class="bg-gray-800 text-white p-3 rounded-xl hover:bg-gray-700"><span class="material-icons-outlined">search</span></button>
+            </div>
+            <div class="flex-1 overflow-y-auto">
+              <div v-for="r in searchResults" :key="r.uid" class="flex justify-between items-center p-3 bg-gray-50 rounded-xl mb-2">
+                <div class="flex items-center space-x-3">
+                  <div class="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden"><img v-if="r.photoURL" :src="r.photoURL" class="w-full h-full object-cover" /><span v-else class="material-icons-outlined text-gray-500 text-sm">person</span></div>
+                  <span class="font-medium text-gray-800">{{ r.displayName }}</span>
+                </div>
+                <button v-if="!friendList.find((f) => f.uid === r.uid) && r.uid !== currentUser.uid" @click="addFriend(r)" class="bg-amber-400 text-white text-xs font-bold px-3 py-2 rounded-lg hover:bg-amber-500">追加</button>
+                <span v-else class="text-gray-400 text-xs font-bold px-2 py-1 bg-gray-200 rounded-lg">追加済</span>
+              </div>
+              <p v-if="searchResults.length===0 && searchQuery" class="text-center text-gray-400 text-sm py-4">見つかりませんでした</p>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="showCreateRoomModal" class="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-center items-center p-4">
+          <div class="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+            <button @click="showCreateRoomModal=false" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><span class="material-icons-outlined">close</span></button>
+            <h3 class="text-xl font-bold text-gray-800 mb-6 text-center">新しくトークを始める</h3>
+            <div class="mb-4">
+              <label class="block text-sm font-bold text-gray-600 mb-2">トークの種類</label>
+              <select v-model="newRoomType" class="w-full p-4 border border-gray-200 rounded-xl bg-gray-50 outline-none focus:border-amber-400">
+                <option value="direct">1対1トーク（友だち）</option>
+                <option value="group">グループトーク（公開）</option>
+              </select>
+            </div>
+            <div v-if="newRoomType==='group'" class="mb-6">
+              <label class="block text-sm font-bold text-gray-600 mb-2">グループ名</label>
+              <input v-model="newRoomName" type="text" placeholder="例: 雑談ルーム" class="w-full p-4 border border-gray-200 rounded-xl bg-gray-50 outline-none focus:border-amber-400" />
+            </div>
+            <div v-if="newRoomType==='direct'" class="mb-6">
+              <label class="block text-sm font-bold text-gray-600 mb-2">トークする友だち</label>
+              <select v-model="selectedFriendId" class="w-full p-4 border border-gray-200 rounded-xl bg-gray-50 outline-none focus:border-amber-400">
+                 <option disabled value="">友だちを選択してください</option>
+                 <option v-for="f in friendList" :key="f.uid" :value="f.uid">{{ f.displayName }}</option>
+              </select>
+            </div>
+            <button @click="createRoom" class="w-full bg-amber-400 text-white font-bold py-4 rounded-xl shadow-md hover:bg-amber-500 transition">作成する</button>
+          </div>
+        </div>
+
+        <div v-if="showCreatorModal" class="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-center items-center p-4">
+          <div class="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+            <button @click="showCreatorModal=false" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><span class="material-icons-outlined">close</span></button>
+            <h3 class="text-xl font-bold text-gray-800 mb-6 text-center">スタンプを自作する</h3>
+            <div class="mb-4">
+              <label class="block text-sm font-bold text-gray-600 mb-2">スタンプセット名</label>
+              <input v-model="newSetName" type="text" placeholder="例: 俺のオリジナルスタンプ" class="w-full p-4 border border-gray-200 rounded-xl bg-gray-50 outline-none focus:border-amber-400" />
+            </div>
+            <div class="mb-6">
+              <label class="block text-sm font-bold text-gray-600 mb-2">画像を選択（複数可）</label>
+              <label class="w-full h-24 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-amber-400 transition bg-gray-50">
+                <span class="material-icons-outlined text-gray-400 mb-1">upload_file</span>
+                <span class="text-sm text-gray-500 font-bold">画像をタップして選択</span>
+                <input type="file" multiple accept="image/*" @change="handleStampFileUpload" class="hidden" />
+              </label>
+            </div>
+            <button @click="createStampSet" class="w-full bg-gray-800 text-white font-bold py-4 rounded-xl shadow-md hover:bg-gray-700 transition">ショップに登録する (無料)</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <script type="module">
+      const { createApp, ref, computed, onMounted } = Vue;
+      
+      const MICROCMS_SERVICE_DOMAIN = "mochichat";
+      const MICROCMS_API_KEY = "DIhEl9XCiaCsqSTLNn76sqkXJdTV9tLscWBA";
+      const { createClient } = microcms;
+
+      createApp({
+        setup() {
+          const client = createClient({ serviceDomain: MICROCMS_SERVICE_DOMAIN, apiKey: MICROCMS_API_KEY });
+          const currentUser = ref(null);
+          const currentView = ref("login");
+          const activeTab = ref("home");
+          
+          const authUsername = ref("");
+          const authPassword = ref("");
+
+          const walletBalance = ref(0);
+          const chatRooms = ref([]);
+          const friendList = ref([]);
+          const activeRoom = ref(null);
+          const messages = ref([]);
+          const newsList = ref([]);
+          const newMsg = ref("");
+          const stampSets = ref([]);
+          const myStampIds = ref(["default"]);
+          const blockedList = ref([]);
+          
+          const showSendModal = ref(false);
+          const selectedFriendId = ref("");
+          const sendAmount = ref(0);
+          const showSearchModal = ref(false);
+          const searchQuery = ref("");
+          const searchResults = ref([]);
+          const showCreateRoomModal = ref(false);
+          const newRoomName = ref("");
+          const newRoomType = ref("direct");
+          const showCreatorModal = ref(false);
+          const newSetName = ref("");
+          const showStickerPicker = ref(false);
+          const isAdmin = ref(false);
+          const showChatMenu = ref(false);
+          const showBlockListModal = ref(false);
+          const showProfileModal = ref(false);
+          const editProfileName = ref("");
+          const editProfileFile = ref(null);
+          const selectedStampSet = ref("default");
+          const lastBonusDate = ref("");
+          let pollingInterval = null;
+
+          const tabTitle = computed(() => ({ home: "ホーム", talk: "トーク", wallet: "ウォレット", settings: "設定" }[activeTab.value]));
+          
+          const displayTalks = computed(() => {
+            return chatRooms.value.filter(r => r.members.includes(currentUser.value?.uid)).map(r => {
+              let name = r.name;
+              let photoURL = null;
+              if (r.type === 'direct') {
+                const partnerId = r.members.find(m => m !== currentUser.value.uid);
+                const pInfo = r.memberInfo?.[partnerId] || {};
+                name = pInfo.name || partnerId;
+                photoURL = pInfo.photoURL || null;
+              }
+              return { id: r.id, name, isGroup: r.type === 'group', type: r.type, partnerId: r.type === 'direct' ? r.members.find(m => m !== currentUser.value.uid) : null, lastMessage: r.lastMessage, timestamp: r.updatedAt, photoURL };
+            }).sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0));
+          });
+
+          const isCurrentChatPartnerBlocked = computed(() => {
+            if (activeRoom.value?.type !== 'direct') return false;
+            const partnerId = activeRoom.value.members.find(m => m !== currentUser.value.uid);
+            return blockedList.value.includes(partnerId);
+          });
+
+          const formatTime = (isoString) => {
+            if (!isoString) return "";
+            const d = new Date(isoString);
+            return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+          };
+
+          const fileToBase64 = (file) => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = error => reject(error);
+          });
+
+          const getStampImages = (set) => set && set.images ? JSON.parse(set.images) : [];
+
+          const fetchData = async () => {
+            try {
+              const [newsRes, stampsRes, roomsRes, userRes] = await Promise.all([
+                client.get({ endpoint: 'news' }).catch(()=>({contents:[]})),
+                client.get({ endpoint: 'stamps' }).catch(()=>({contents:[]})),
+                client.get({ endpoint: 'rooms' }).catch(()=>({contents:[]})),
+                currentUser.value ? client.get({ endpoint: 'users', contentId: currentUser.value.uid }).catch(()=>null) : Promise.resolve(null)
+              ]);
+              newsList.value = newsRes.contents;
+              stampSets.value = stampsRes.contents;
+              
+              if (!stampSets.value.find(s => s.id === "default")) {
+                stampSets.value.unshift({ id: "default", title: "デフォルト", images: JSON.stringify(["https://placehold.co/100x100/FFD700/000?text=Hello", "https://placehold.co/100x100/FFD700/000?text=OK", "https://placehold.co/100x100/FFD700/000?text=Thanks"]) });
+              }
+
+              chatRooms.value = roomsRes.contents.map(r => ({
+                id: r.id, name: r.name, type: r.type, members: JSON.parse(r.members||'[]'), memberInfo: JSON.parse(r.memberInfo||'{}'),
+                messages: JSON.parse(r.messages||'[]'), lastMessage: r.lastMessage?JSON.parse(r.lastMessage):null, updatedAt: r.updatedAt
+              }));
+
+              if (activeRoom.value) {
+                const updatedRoom = chatRooms.value.find(r => r.id === activeRoom.value.id);
+                if (updatedRoom) messages.value = updatedRoom.messages;
+              }
+
+              if (userRes) {
+                walletBalance.value = userRes.balance || 0;
+                myStampIds.value = JSON.parse(userRes.my_stamps || '["default"]');
+                blockedList.value = JSON.parse(userRes.blocked || '[]');
+                friendList.value = JSON.parse(userRes.friends || '[]');
+              }
+            } catch (e) { console.error("データ取得エラー", e); }
+          };
+
+          const startHomePolling = () => { if (!pollingInterval) { fetchData(); pollingInterval = setInterval(fetchData, 5000); } };
+          const stopPolling = () => { if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; } };
+
+          const hashPassword = (pwd) => {
+            return CryptoJS.SHA256(pwd).toString();
+          };
+
+          const login = async () => {
+            if (!authUsername.value.trim() || !authPassword.value.trim()) {
+              return alert("ユーザー名とパスワードを入力してください");
+            }
+            const username = authUsername.value.trim();
+            const password = authPassword.value.trim();
+            const hashedPassword = hashPassword(password);
+
+            try {
+              const res = await client.get({ endpoint: 'users', contentId: username }).catch(() => null);
+              
+              if (res) {
+                if (res.password === hashedPassword) {
+                  currentUser.value = { uid: username, displayName: res.display_name, photoURL: res.photo_url || null };
+                  isAdmin.value = (username === "admin" || username === "mochi1109");
+                  walletBalance.value = res.balance || 0;
+                  lastBonusDate.value = res.last_bonus_date || "";
+                  myStampIds.value = JSON.parse(res.my_stamps || '["default"]');
+                  blockedList.value = JSON.parse(res.blocked || '[]');
+                  friendList.value = JSON.parse(res.friends || '[]');
+                  currentView.value = "main";
+                  editProfileName.value = currentUser.value.displayName;
+                  startHomePolling();
+                } else {
+                  alert("パスワードが間違っています");
+                }
+              } else {
+                await client.create({ 
+                  endpoint: 'users', 
+                  contentId: username, 
+                  content: { 
+                    display_name: username, 
+                    password: hashedPassword, 
+                    balance: 500, 
+                    friends: '[]' 
+                  } 
+                });
+                currentUser.value = { uid: username, displayName: username, photoURL: null };
+                isAdmin.value = (username === "admin" || username === "mochi1109");
+                friendList.value = [];
+                currentView.value = "main";
+                editProfileName.value = username;
+                startHomePolling();
+                alert("新しくアカウントを作成しました！");
+              }
+            } catch (e) { 
+              alert("ログインエラー: " + e.message); 
+            }
+          };
+
+          const logout = () => { stopPolling(); currentUser.value = null; currentView.value = "login"; authUsername.value = ""; authPassword.value = ""; };
+
+          const saveUserDoc = async () => {
+             if(!currentUser.value) return;
+             await client.update({
+               endpoint: 'users', contentId: currentUser.value.uid,
+               content: { 
+                 balance: walletBalance.value, 
+                 friends: JSON.stringify(friendList.value),
+                 last_bonus_date: lastBonusDate.value 
+               }
+             });
+          };
+
+          const handleProfileIconUpload = async (e) => {
+            const file = e.target.files[0]; if(!file) return;
+            const base64 = await fileToBase64(file);
+            editProfileFile.value = base64; currentUser.value.photoURL = base64;
+          };
+
+          const saveProfile = async () => {
+            if(!editProfileName.value.trim()) return alert("名前を入力してください");
+            currentUser.value.displayName = editProfileName.value;
+            const content = { display_name: editProfileName.value };
+            if (editProfileFile.value) content.photo_url = editProfileFile.value;
+            await client.update({ endpoint: 'users', contentId: currentUser.value.uid, content });
+            showProfileModal.value = false;
+          };
+
+          const openTalkItem = (t) => {
+            const room = chatRooms.value.find(r => r.id === t.id);
+            if(room) { activeRoom.value = room; messages.value = room.messages; currentView.value = "chat"; showChatMenu.value = false; }
+          };
+
+          const startDirectChat = async (friendId) => {
+            let existingRoom = chatRooms.value.find(r => r.type === "direct" && r.members.includes(currentUser.value.uid) && r.members.includes(friendId));
+            if (existingRoom) { activeRoom.value = existingRoom; messages.value = existingRoom.messages; currentView.value = "chat"; }
+            else {
+               const f = friendList.value.find(x => x.uid === friendId);
+               const minfo = {};
+               minfo[currentUser.value.uid] = { name: currentUser.value.displayName, photoURL: currentUser.value.photoURL };
+               minfo[friendId] = { name: f.displayName, photoURL: f.photoURL };
+               const newR = { type: 'direct', name: "", members: JSON.stringify([currentUser.value.uid, friendId]), memberInfo: JSON.stringify(minfo), messages: '[]' };
+               const res = await client.create({ endpoint: 'rooms', content: newR });
+               fetchData().then(() => {
+                 const r = chatRooms.value.find(x=>x.id===res.id);
+                 if(r){ activeRoom.value=r; messages.value=r.messages; currentView.value="chat"; }
+               });
+            }
+          };
+
+          const createRoom = async () => {
+            if (newRoomType.value === "group" && !newRoomName.value.trim()) return alert("グループ名を入力");
+            if (newRoomType.value === "direct" && !selectedFriendId.value) return alert("友だちを選択");
+            if (newRoomType.value === "direct") { startDirectChat(selectedFriendId.value); showCreateRoomModal.value = false; return; }
+            const minfo = {}; minfo[currentUser.value.uid] = { name: currentUser.value.displayName, photoURL: currentUser.value.photoURL };
+            const newR = { type: 'group', name: newRoomName.value, members: JSON.stringify([currentUser.value.uid]), memberInfo: JSON.stringify(minfo), messages: '[]' };
+            await client.create({ endpoint: 'rooms', content: newR });
+            showCreateRoomModal.value = false; newRoomName.value = ""; fetchData();
+          };
+
+          const sendMsg = async (type, extra = null) => {
+            if (isCurrentChatPartnerBlocked) return alert("ブロック中のため送信できません");
+            if (type === "text" && !newMsg.value.trim()) return;
+            const m = { id: Date.now().toString(), senderId: currentUser.value.uid, senderName: currentUser.value.displayName, photoURL: currentUser.value.photoURL, type, timestamp: new Date().toISOString() };
+            if (type === "text") { m.text = newMsg.value; newMsg.value = ""; }
+            else if (type === "stamp") { m.stampUrl = extra; showStickerPicker.value = false; }
+            else if (type === "money") m.amount = extra;
+
+            const updatedMessages = [...messages.value, m];
+            messages.value = updatedMessages;
+            await client.update({ endpoint: 'rooms', contentId: activeRoom.value.id, content: { messages: JSON.stringify(updatedMessages), lastMessage: JSON.stringify(m) }});
+          };
+
+          const closeChat = () => { activeRoom.value = null; messages.value = []; currentView.value = "main"; showStickerPicker.value = false; showChatMenu.value = false; fetchData(); };
+
+          const performSearch = async () => {
+            if (!searchQuery.value.trim()) return;
+            try {
+              const res = await client.get({ endpoint: 'users', contentId: searchQuery.value }).catch(()=>null);
+              searchResults.value = res ? [{ uid: res.id, displayName: res.display_name, photoURL: res.photo_url }] : [];
+            } catch(e){}
+          };
+
+          const addFriend = async (user) => {
+            if (!friendList.value.find(f => f.uid === user.uid)) {
+              friendList.value.push(user);
+              await saveUserDoc(); alert(`${user.displayName}を追加しました`);
+            }
+          };
+
+          const executeSend = async () => {
+             if (!selectedFriendId.value || sendAmount.value <= 0) return alert("正しく入力してください");
+             if (walletBalance.value < sendAmount.value) return alert("残高不足です");
+             const f = friendList.value.find(x => x.uid === selectedFriendId.value);
+             walletBalance.value -= sendAmount.value;
+             await saveUserDoc();
+             
+             let room = chatRooms.value.find(r => r.type === "direct" && r.members.includes(currentUser.value.uid) && r.members.includes(selectedFriendId.value));
+             if(!room) {
+               const minfo = {}; minfo[currentUser.value.uid] = { name: currentUser.value.displayName, photoURL: currentUser.value.photoURL };
+               minfo[f.uid] = { name: f.displayName, photoURL: f.photoURL };
+               const newR = { type: 'direct', name: "", members: JSON.stringify([currentUser.value.uid, f.uid]), memberInfo: JSON.stringify(minfo), messages: '[]' };
+               const res = await client.create({ endpoint: 'rooms', content: newR });
+               await fetchData(); room = chatRooms.value.find(x=>x.id===res.id);
+             }
+             activeRoom.value = room; messages.value = room.messages;
+             await sendMsg("money", sendAmount.value);
+             showSendModal = false; alert(`${sendAmount.value}M を送りました！`);
+          };
+
+          const getLoginBonus = () => {
+            const today = new Date().toISOString().split('T')[0];
+
+            if (currentUser.value.uid !== "admin" && currentUser.value.uid !== "mochi1109" && lastBonusDate.value === today) {
+              return alert("ボーナスを受け取れるのは1日1回までです。また明日お試しください！");
+            }
+
+            walletBalance.value += 100;
+            lastBonusDate.value = today;
+            
+            saveUserDoc();
+            alert("100M ゲットしました！");
+          };
+
+          const addNews = async () => {
+            const title = prompt("ニュースのタイトル"); if (!title) return;
+            const content = prompt("本文（任意）");
+            await client.create({ endpoint: 'news', content: { title, content }}); fetchData();
+          };
+          const deleteNews = async (id) => { if(confirm("削除しますか？")){ await client.delete({ endpoint: 'news', contentId: id }); fetchData(); } };
+
+          let stampFilesToUpload = [];
+          const handleStampFileUpload = async (e) => {
+            const files = Array.from(e.target.files);
+            stampFilesToUpload = await Promise.all(files.map(f => fileToBase64(f)));
+            alert(`${stampFilesToUpload.length}枚の画像をセットしました`);
+          };
+          
+          const createStampSet = async () => {
+            if (!newSetName.value || stampFilesToUpload.length === 0) {
+              return alert("名前と画像が必要です");
+            }
+            
+            if (walletBalance.value < 300) {
+              showCreatorModal.value = false;
+              return alert("スタンプを自作するには 300M 必要です（現在の残高: " + walletBalance.value + "M）");
+            }
+
+            try {
+              await client.create({ 
+                endpoint: 'stamps', 
+                content: { 
+                  title: newSetName.value, 
+                  images: JSON.stringify(stampFilesToUpload)
+                }
+              });
+
+              walletBalance.value -= 300;
+              await saveUserDoc();
+
+              newSetName.value = ""; 
+              stampFilesToUpload = []; 
+              showCreatorModal.value = false;
+              
+              fetchData();
+              alert("300M を消費してスタンプをショップに登録しました！");
+
+            } catch (e) {
+              showCreatorModal.value = false; 
+              alert("登録エラーが発生しました: " + e.message);
+            }
+          };
+
+          const buyStamp = async (s) => {
+            const price = s.price || 100;
+            if (walletBalance.value < price) return alert("モチが足りません");
+
+            try {
+              walletBalance.value -= price;
+              myStampIds.value.push(s.id);
+              await saveUserDoc();
+
+              if (s.creatorId && s.creatorId !== currentUser.value.uid) {
+                const creatorRes = await client.get({ endpoint: 'users', contentId: s.creatorId }).catch(() => null);
+                if (creatorRes) {
+                  const currentCreatorBalance = creatorRes.balance || 0;
+                  await client.update({
+                    endpoint: 'users',
+                    contentId: s.creatorId,
+                    content: { balance: currentCreatorBalance + 50 }
+                  });
+                }
+              }
+
+              alert("100M でスタンプを購入しました！");
+              fetchData();
+            } catch (e) {
+              alert("購入エラー: " + e.message);
+            }
+          };
+
+          const toggleBlockUser = async (targetUser) => {
+            if (blockedList.value.includes(targetUser.uid)) { blockedList.value = blockedList.value.filter(id => id !== targetUser.uid); alert("ブロックを解除しました"); }
+            else { blockedList.value.push(targetUser.uid); alert("ブロックしました"); }
+            await saveUserDoc();
+          };
+
+          const toggleBlockCurrentChatUser = () => {
+            if (activeRoom.value?.type === 'direct') {
+              const partnerId = activeRoom.value.members.find(m => m !== currentUser.value.uid);
+              toggleBlockUser({ uid: partnerId }); showChatMenu.value = false;
+            }
+          };
+
+          const unblockUser = (id) => toggleBlockUser({ uid: id });
+
+          const deleteChatRoom = async (item) => {
+            if (confirm("トーク履歴を削除しますか？")) { await client.delete({ endpoint: 'rooms', contentId: item.id }); fetchData(); }
+          };
+
+          const deleteChatRoomInView = async () => {
+            if (activeRoom.value) { await deleteChatRoom({ id: activeRoom.value.id }); closeChat(); }
+          };
+
+          return {
+            currentUser,
+            currentView,
+            activeTab,
+            authUsername,
+            authPassword,
+            walletBalance,
+            chatRooms,
+            friendList,
+            activeRoom,
+            messages,
+            newsList,
+            newMsg,
+            stampSets,
+            myStampIds,
+            blockedList,
+            showSendModal,
+            selectedFriendId,
+            sendAmount,
+            showSearchModal,
+            searchQuery,
+            searchResults,
+            showCreateRoomModal,
+            newRoomName,
+            newRoomType,
+            showCreatorModal,
+            newSetName,
+            showStickerPicker,
+            isAdmin,
+            displayTalks,
+            showChatMenu,
+            isCurrentChatPartnerBlocked,
+            showBlockListModal,
+            showProfileModal,
+            editProfileName,
+            editProfileFile,
+            selectedStampSet,
+            tabTitle,
+            formatTime,
+            lastBonusDate,
+            login,
+            logout,
+            openChat: openTalkItem,
+            closeChat,
+            openTalkItem,
+            startDirectChat,
+            sendMsg,
+            getLoginBonus,
+            executeSend,
+            createRoom,
+            performSearch,
+            addFriend,
+            addNews,
+            deleteNews,
+            handleProfileIconUpload,
+            saveProfile,
+            handleStampFileUpload,
+            createStampSet,
+            buyStamp,
+            getStampImages,
+            toggleBlockUser,
+            toggleBlockCurrentChatUser,
+            unblockUser,
+            deleteChatRoom,
+            deleteChatRoomInView
+          };
+        }
+      }).mount("#app");
+    </script>
+  </body>
+</html>
