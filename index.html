@@ -611,9 +611,10 @@
                const res = await client.create({ endpoint: 'rooms', content: newR });
                await fetchData(); room = chatRooms.value.find(x=>x.id===res.id);
              }
-             activeRoom.value = room; messages.value = room.messages;
+  activeRoom.value = room; messages.value = room.messages;
              await sendMsg("money", sendAmount.value);
-             showSendModal = false; alert(`${sendAmount.value}M を送りました！`);
+             showSendModal.value = false; // 👈 「.value」を付け足しました！
+             alert(`${sendAmount.value}M を送りました！`);
           };
 
           const getLoginBonus = () => {
