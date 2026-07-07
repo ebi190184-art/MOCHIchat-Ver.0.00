@@ -566,8 +566,11 @@
             showCreateRoomModal.value = false; newRoomName.value = ""; fetchData();
           };
 
+          // ★ここから書き換え
           const sendMsg = async (type, extra = null) => {
-            if (isCurrentChatPartnerBlocked) return alert("ブロック中のため送信できません");
+            // 末尾に「.value」を付け忘れていたため、常にブロック判定になっていました
+            if (isCurrentChatPartnerBlocked.value) return alert("ブロック中のため送信できません"); 
+            
             if (type === "text" && !newMsg.value.trim()) return;
             const m = { id: Date.now().toString(), senderId: currentUser.value.uid, senderName: currentUser.value.displayName, photoURL: currentUser.value.photoURL, type, timestamp: new Date().toISOString() };
             if (type === "text") { m.text = newMsg.value; newMsg.value = ""; }
