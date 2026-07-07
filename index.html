@@ -174,7 +174,10 @@
               <div :class="['max-w-[70%] flex flex-col', m.senderId === currentUser.uid ? 'items-end' : 'items-start']">
                 <span v-if="m.senderId !== currentUser.uid" class="text-[10px] text-white/80 mb-1 ml-1">{{ m.senderName }}</span>
                 <div v-if="m.type === 'text'" :class="['px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed shadow-sm break-words whitespace-pre-wrap', m.senderId === currentUser.uid ? 'bg-[#85E249] text-gray-900 rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none']">{{ m.text }}</div>
-                <div v-else-if="m.type === 'stamp'" class="w-32 h-32 relative"><img :src="m.stampUrl" class="w-full h-full object-contain drop-shadow-md" /></div>
+               <div v-else-if="m.type === 'stamp'" class="w-32 h-32 relative"><img :src="m.stampUrl" class="w-full h-full object-contain drop-shadow-md" /></div>
+                <div v-else-if="m.type === 'image'" class="max-w-[200px] rounded-2xl overflow-hidden shadow-sm border border-black/10 bg-white p-1">
+                  <img :src="m.imageUrl" class="w-full h-auto object-contain rounded-xl max-h-60" />
+                </div>
                 <div v-else-if="m.type === 'money'" class="bg-gradient-to-br from-amber-300 to-orange-400 p-4 rounded-2xl shadow-md text-white flex flex-col items-center justify-center min-w-[120px]"><span class="material-icons-outlined text-3xl mb-1 opacity-90">payments</span><span class="font-bold text-xl">{{ m.amount }} M</span><span class="text-[10px] opacity-80 mt-1">送金されました</span></div>
                 <div class="flex items-center space-x-1 mt-1"><span class="text-[10px] text-white/70">{{ formatTime(m.timestamp) }}</span></div>
               </div>
@@ -183,6 +186,10 @@
           </main>
 
           <footer class="bg-white p-2 flex items-end space-x-2 border-t border-gray-200">
+            <label class="w-10 h-10 flex-shrink-0 flex items-center justify-center text-gray-400 hover:text-amber-500 transition cursor-pointer">
+              <span class="material-icons-outlined text-2xl">add_circle_outline</span>
+              <input type="file" accept="image/*" @change="handleChatImageUpload" class="hidden" :disabled="isCurrentChatPartnerBlocked.value" />
+            </label>
             <button @click="showStickerPicker = !showStickerPicker" class="w-10 h-10 flex-shrink-0 flex items-center justify-center text-gray-400 hover:text-amber-500 transition"><span class="material-icons-outlined text-2xl">sentiment_satisfied_alt</span></button>
             <div class="flex-1 bg-gray-100 rounded-2xl border border-gray-200 overflow-hidden flex min-h-[40px] max-h-[120px]">
               <textarea v-model="newMsg" @keydown.enter.prevent="sendMsg('text')" :disabled="isCurrentChatPartnerBlocked" placeholder="メッセージを入力..." class="w-full bg-transparent p-3 outline-none resize-none text-[15px] leading-tight hide-scrollbar disabled:opacity-50" rows="1"></textarea>
@@ -573,14 +580,30 @@
             
             if (type === "text" && !newMsg.value.trim()) return;
             const m = { id: Date.now().toString(), senderId: currentUser.value.uid, senderName: currentUser.value.displayName, photoURL: currentUser.value.photoURL, type, timestamp: new Date().toISOString() };
-            if (type === "text") { m.text = newMsg.value; newMsg.value = ""; }
+           if (type === "text") { m.text = newMsg.value; newMsg.value = ""; }
             else if (type === "stamp") { m.stampUrl = extra; showStickerPicker.value = false; }
+            // ★ここから追加：画像メッセージ用データのセット
+            else if (type === "image") { m.imageUrl = extra; }
+            // ★ここまで追加
             else if (type === "money") m.amount = extra;
 
             const updatedMessages = [...messages.value, m];
             messages.value = updatedMessages;
             await client.update({ endpoint: 'rooms', contentId: activeRoom.value.id, content: { messages: JSON.stringify(updatedMessages), lastMessage: JSON.stringify(m) }});
           };
+
+          // ★ここから追加：画像が選ばれたら自動で送る関数
+          const handleChatImageUpload = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+              const base64 = await fileToBase64(file);
+              await sendMsg("image", base64);
+            } catch (err) {
+              alert("画像の送信に失敗しました");
+            }
+          };
+          // ★ここまで追加
 
           const closeChat = () => { activeRoom.value = null; messages.value = []; currentView.value = "main"; showStickerPicker.value = false; showChatMenu.value = false; fetchData(); };
 
@@ -790,6 +813,7 @@
             deleteNews,
             handleProfileIconUpload,
             saveProfile,
+            handleChatImageUpload,
             handleStampFileUpload,
             createStampSet,
             buyStamp,
