@@ -784,59 +784,75 @@
             }
           };
 
-          // ログイン / 新規登録
-          const login = async () => {
-            if (!authUsername.value || !authPassword.value) {
-              return alert("ユーザーIDとパスワードを入力してください");
-            }
-            const uid = authUsername.value.trim();
-            const hash = CryptoJS.SHA256(authPassword.value).toString();
+         const login = async () => {
+  if (!authUsername.value || !authPassword.value) {
+    alert("ユーザー名とパスワードを入力してください。");
+    return;
+  }
+  const uid = authUsername.value.trim();
+  const pwd = authPassword.value;
+  const hash = CryptoJS.SHA256(pwd).toString();
 
-            try {
-              const res = await client.get({ endpoint: 'users', contentId: uid }).catch(() => null);
-              if (res) {
-                if (res.password === hash) {
-                  currentUser.value = {
-                    uid,
-                    displayName: res.display_name || uid,
-                    photoURL: res.photo_url || ""
-                  };
-                  walletBalance.value = res.balance || 0;
-                  friendList.value = res.friends ? JSON.parse(res.friends) : [];
-                  blockedList.value = res.blocked ? JSON.parse(res.blocked) : [];
-                  myStampIds.value = res.my_stamps ? JSON.parse(res.my_stamps) : ["default"];
-                  lastBonusDate.value = res.last_bonus_date || "";
-                } else {
-                  return alert("パスワードが違います");
-                }
- 　　　　　　　　　} else {
-  // 新規ユーザー登録 (IDは自動生成させ、display_nameにuidを保存する)
-  await client.create({
-    endpoint: 'users',
-    content: {
-      // ❌ id: uid, は記述しない（自動で生成されます）
-      display_name: uid,
-      password: hash,
-      balance: 1000,
-      friends: "[]",
-      blocked: "[]",
-      my_stamps: JSON.stringify(["default"])
+  try {
+    // 1. まず該当のユーザーが存在するか確認を試みる
+    let user = null;
+    try {
+      user = await client.get({
+        endpoint: 'users',
+        contentId: uid,
+      });
+    } catch (e) {
+      // 404エラーなどの場合はユーザーが存在しないとみなす
+      user = null;
     }
-  });
-  currentUser.value = { uid, displayName: uid, photoURL: "" };
-  walletBalance.value = 1000;
-  // (以下省略)        
-                friendList.value = [];
-                blockedList.value = [];
-                myStampIds.value = ["default"];
-              }
-              currentView.value = "main";
-              await fetchData();
-            } catch (err) {
-              console.error(err);
-              alert("ログイン処理に失敗しました");
-            }
-          };
+
+    if (user) {
+      // 既存ユーザーのログインチェック
+      if (user.password === hash) {
+        currentUser.value = { uid: user.id, displayName: user.display_name, photoURL: user.photo_url || "" };
+        walletBalance.value = user.balance || 0;
+        friendList.value = JSON.parse(user.friends || "[]");
+        blockedList.value = JSON.parse(user.blocked || "[]");
+        myStampIds.value = JSON.parse(user.my_stamps || '["default"]');
+        isAdmin.value = (uid === "admin");
+        
+        await loadUserData();
+        currentView.value = 'talks';
+      } else {
+        alert("パスワードが間違っています。");
+      }
+    } else {
+      // 2. ユーザーが存在しない場合、新規登録（既存上書きの仕組みを利用）
+      // ※ microCMSの「下書き（draft）」ではなく直接「公開（publish）」ステータスで作成します
+      await client.create({
+        endpoint: 'users',
+        content: {
+          id: uid, // 👈 これで手動設定をONにしていなくてもIDを固定して作成できます
+          display_name: uid,
+          password: hash,
+          balance: 1000,
+          friends: "[]",
+          blocked: "[]",
+          my_stamps: JSON.stringify(["default"])
+        }
+      });
+
+      currentUser.value = { uid, displayName: uid, photoURL: "" };
+      walletBalance.value = 1000;
+      friendList.value = [];
+      blockedList.value = [];
+      myStampIds.value = ["default"];
+      isAdmin.value = (uid === "admin");
+
+      alert("新規ユーザー登録が完了しました！");
+      await loadUserData();
+      currentView.value = 'talks';
+    }
+  } catch (error) {
+    console.error(error);
+    alert("ログイン処理に失敗しました。microCMSのスキーマ設定（フィールドID）が正しいか、またはAPIキーの権限を確認してください。");
+  }
+};
 
           // ログアウト
           const logout = () => {
