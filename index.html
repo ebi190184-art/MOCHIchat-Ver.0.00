@@ -809,12 +809,12 @@
                 } else {
                   return alert("パスワードが違います");
                 }
-              } else {
-  // 新規ユーザー登録 (contentId に uid を直接指定して作成・保存する)
-  await client.update({
+             } else {
+  // 新規ユーザー登録 (content 内に id を含めて新規作成する)
+  await client.create({
     endpoint: 'users',
-    contentId: uid, // 👈 ここでユーザーIDをコンテンツIDとして明示的に指定します
     content: {
+      id: uid, // 👈 リスト形式で任意のIDを指定して新規作成する場合は、content内に id を記述します
       display_name: uid,
       password: hash,
       balance: 1000,
@@ -824,7 +824,8 @@
     }
   });
   currentUser.value = { uid, displayName: uid, photoURL: "" };
-                walletBalance.value = 1000;
+  walletBalance.value = 1000;
+  // (以下省略)
                 friendList.value = [];
                 blockedList.value = [];
                 myStampIds.value = ["default"];
