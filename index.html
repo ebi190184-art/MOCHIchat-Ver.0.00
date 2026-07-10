@@ -784,7 +784,7 @@
             }
           };
 
-         const login = async () => {
+const login = async () => {
   if (!authUsername.value || !authPassword.value) {
     alert("ユーザー名とパスワードを入力してください。");
     return;
@@ -794,7 +794,6 @@
   const hash = CryptoJS.SHA256(pwd).toString();
 
   try {
-    // 1. まず該当のユーザーが存在するか確認を試みる
     let user = null;
     try {
       user = await client.get({
@@ -802,7 +801,6 @@
         contentId: uid,
       });
     } catch (e) {
-      // 404エラーなどの場合はユーザーが存在しないとみなす
       user = null;
     }
 
@@ -812,8 +810,9 @@
         currentUser.value = { uid: user.id, displayName: user.display_name, photoURL: user.photo_url || "" };
         walletBalance.value = user.balance || 0;
         friendList.value = JSON.parse(user.friends || "[]");
-        blockedList.value = JSON.parse(user.blocked || "[]");
-        myStampIds.value = JSON.parse(user.my_stamps || '["default"]');
+        // microCMS側にないフィールドは一旦初期値の空配列にしてエラーを防ぐ
+        blockedList.value = [];
+        myStampIds.value = ["default"];
         isAdmin.value = (uid === "admin");
         
         await loadUserData();
@@ -822,18 +821,16 @@
         alert("パスワードが間違っています。");
       }
     } else {
-      // 2. ユーザーが存在しない場合、新規登録（既存上書きの仕組みを利用）
-      // ※ microCMSの「下書き（draft）」ではなく直接「公開（publish）」ステータスで作成します
+      // 2. 新規ユーザー登録 (microCMS側のフィールドに完全に合わせる)
       await client.create({
         endpoint: 'users',
         content: {
-          id: uid, // 👈 これで手動設定をONにしていなくてもIDを固定して作成できます
+          id: uid,
           display_name: uid,
           password: hash,
           balance: 1000,
           friends: "[]",
-          blocked: "[]",
-          my_stamps: JSON.stringify(["default"])
+          last_bonus_day: "" // 👈 microCMS側の定義に合わせました
         }
       });
 
@@ -850,7 +847,7 @@
     }
   } catch (error) {
     console.error(error);
-    alert("ログイン処理に失敗しました。microCMSのスキーマ設定（フィールドID）が正しいか、またはAPIキーの権限を確認してください。");
+    alert("ログイン処理に失敗しました。APIキーの権限（POST/PUT許可）を確認してください。");
   }
 };
 
