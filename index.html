@@ -794,26 +794,26 @@ const login = async () => {
   const hash = CryptoJS.SHA256(pwd).toString();
 
   try {
-    let user = null;
-    try {
-      user = await client.get({
-        endpoint: 'users',
-        contentId: uid,
-      });
-    } catch (e) {
-      user = null;
-    }
+    // 1. ディスプレイネームが一致するユーザーを検索（設定に依存しない確実な方法）
+    const res = await client.get({
+      endpoint: 'users',
+      queries: {
+        filters: `display_name[equals]${uid}`
+      }
+    });
 
-    if (user) {
-      // 既存ユーザーのログインチェック
+    // 既存ユーザーが見つかった場合
+    if (res.contents && res.contents.length > 0) {
+      const user = res.contents[0];
+      
+      // パスワードチェック
       if (user.password === hash) {
         currentUser.value = { uid: user.id, displayName: user.display_name, photoURL: user.photo_url || "" };
         walletBalance.value = user.balance || 0;
         friendList.value = JSON.parse(user.friends || "[]");
-        // microCMS側にないフィールドは一旦初期値の空配列にしてエラーを防ぐ
         blockedList.value = [];
         myStampIds.value = ["default"];
-        isAdmin.value = (uid === "admin");
+        isAdmin.value = (user.display_name === "admin");
         
         await loadUserData();
         currentView.value = 'talks';
@@ -821,20 +821,20 @@ const login = async () => {
         alert("パスワードが間違っています。");
       }
     } else {
-      // 2. 新規ユーザー登録 (microCMS側のフィールドに完全に合わせる)
-      await client.create({
+      // 2. ユーザーが存在しない場合は、新規登録を行う
+      // （IDはmicroCMSに自動生成させ、display_nameにユーザー名を入れる）
+      const newDoc = await client.create({
         endpoint: 'users',
         content: {
-          id: uid,
           display_name: uid,
           password: hash,
           balance: 1000,
           friends: "[]",
-          last_bonus_day: "" // 👈 microCMS側の定義に合わせました
+          last_bonus_day: ""
         }
       });
 
-      currentUser.value = { uid, displayName: uid, photoURL: "" };
+      currentUser.value = { uid: newDoc.id, displayName: uid, photoURL: "" };
       walletBalance.value = 1000;
       friendList.value = [];
       blockedList.value = [];
@@ -847,7 +847,7 @@ const login = async () => {
     }
   } catch (error) {
     console.error(error);
-    alert("ログイン処理に失敗しました。APIキーの権限（POST/PUT許可）を確認してください。");
+    alert("ログイン・登録処理に失敗しました。APIキーの権限（POST許可）を確認してください。");
   }
 };
 
