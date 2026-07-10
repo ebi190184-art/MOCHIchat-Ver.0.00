@@ -810,20 +810,20 @@
                   return alert("パスワードが違います");
                 }
               } else {
-                // 新規ユーザー登録 (1000Mを初期付与)
-                await client.create({
-                  endpoint: 'users',
-                  content: {
-                    id: uid,
-                    display_name: uid,
-                    password: hash,
-                    balance: 1000,
-                    friends: "[]",
-                    blocked: "[]",
-                    my_stamps: JSON.stringify(["default"])
-                  }
-                });
-                currentUser.value = { uid, displayName: uid, photoURL: "" };
+  // 新規ユーザー登録 (contentId に uid を直接指定して作成・保存する)
+  await client.update({
+    endpoint: 'users',
+    contentId: uid, // 👈 ここでユーザーIDをコンテンツIDとして明示的に指定します
+    content: {
+      display_name: uid,
+      password: hash,
+      balance: 1000,
+      friends: "[]",
+      blocked: "[]",
+      my_stamps: JSON.stringify(["default"])
+    }
+  });
+  currentUser.value = { uid, displayName: uid, photoURL: "" };
                 walletBalance.value = 1000;
                 friendList.value = [];
                 blockedList.value = [];
